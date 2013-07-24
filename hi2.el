@@ -1,10 +1,13 @@
-;;; hi2.el -- indentation module for Haskell Mode
+;;; hi2.el --- indentation module for Haskell Mode
 
 ;; Copyright (C) 2013  Gergely Risko
 ;; Copyright (C) 2009  Kristof Bastiaensen
+;; This file is heavily based on haskell-indentation.el by Kristof.
 
-;; Author: Gergely Risko <gergely@risko.hu>
-;; This file is heaviliy based on haskell-indentation.el by Kristof.
+;;; Version: 20130724.1541
+;;; Keywords: indentation haskell
+;;; Author: Gergely Risko <gergely@risko.hu>
+;;; URL: https://github.com/errge/hi2
 
 ;; This file is not part of GNU Emacs.
 
@@ -993,3 +996,5 @@ indentation points to the right, we switch going to the left."
       (forward-comment (buffer-size)))))
 
 (provide 'hi2)
+
+;;; hi2.el ends here
