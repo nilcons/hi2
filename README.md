@@ -9,6 +9,9 @@ Put `hi2.el` into your load-path and add this to .emacs:
     (require 'hi2)
     (add-hook haskell-mode-hook 'turn-on-hi2)
 
+The package can also be found on MELPA, if you install from there, you
+can leave out the require line above.
+
 ## Notable changes to haskell-indentation-mode
 
 * DEL and C-d is not mapped: if you want to indent backwards, you can
