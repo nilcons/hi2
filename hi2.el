@@ -335,7 +335,7 @@ indentation points to the right, we switch going to the left."
             (move-to-column ci)
           (hi2-reindent-to (hi2-next-indentation ci inds 'nofail) cursor-in-whitespace))
         (setq hi2-dyn-last-direction 'right)
-        (setq hi2-dyn-first-position ci)
+        (setq hi2-dyn-first-position (hi2-current-indentation))
         (setq hi2-dyn-last-indentations inds)))))
 
 (defun hi2-indent-line-repeat ()
