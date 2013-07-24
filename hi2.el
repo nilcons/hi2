@@ -26,9 +26,9 @@
 
 ;;; Commentary:
 
-;; This is a modified up version of haskell-indentation-mode bundled
-;; with haskell-mode.  Currently the semantic parser is not changed,
-;; but the UI of tab completion is reworked.  Most notably
+;; This is a modified version of haskell-indentation-mode bundled with
+;; haskell-mode.  Currently the semantic parser is not changed, but
+;; the UI of tab completion is reworked.  Most notably
 ;;   - DEL and C-d is not mapped:
 ;;       if you want to indent backwards, you can use S-TAB,
 ;;   - TAB steps to the right as before, but when the end is reached,
@@ -37,6 +37,11 @@
 ;;     the line,
 ;;   - region indentation common case is supported: TAB and S-TAB
 ;;     is simply moving the whole region to the left/right,
+;;   - the current indentations are shown as underscores in the
+;;     current line, so you have some visual indication (can be turned
+;;     off by setting `hi2-show-indentations' to nil in your init
+;;     fileor calling `hi2-disable-show-indentations' from the
+;;     buffer),
 ;;   - the buffer is not changed when indentation is not changed (so
 ;;     there are no undo points created and no dirty flag in the
 ;;     buffer),
@@ -82,6 +87,14 @@
   "Haskell hi2 indentation."
   :group 'haskell
   :prefix "hi2-")
+
+(defcustom hi2-show-indentations t
+  "If t the current line's indentation points will be showed as
+underscore overlays in new haskell-mode buffers.  Use
+`hi2-enable-show-indentations' and `hi2-disable-show-indentations'
+to switch the behavior for already existing buffers."
+  :type 'boolean
+  :group 'hi2)
 
 (defcustom hi2-layout-offset 2
   "Extra indentation to add before expressions in a haskell layout list."
@@ -134,7 +147,8 @@ autofill-mode."
     (setq max-lisp-eval-depth (max max-lisp-eval-depth 600)) ;; set a higher limit for recursion
     (set (make-local-variable 'indent-line-function) 'hi2-indent-line)
     (set (make-local-variable 'indent-region-function) 'hi2-indent-region)
-    (set (make-local-variable 'normal-auto-fill-function) 'hi2-auto-fill-function)))
+    (set (make-local-variable 'normal-auto-fill-function) 'hi2-auto-fill-function)
+    (when hi2-show-indentations (hi2-enable-show-indentations))))
 
 ;;;###autoload
 (defun turn-on-hi2 ()
@@ -375,6 +389,75 @@ indentation points to the right, we switch going to the left."
           ;; if there are no more indentations to the left, just go to column 0
           (hi2-reindent-to (car (hi2-first-indentation)) cursor-in-whitespace)
         (hi2-reindent-to pi cursor-in-whitespace))))))
+
+;;---------------------------------------- hi2 show indentations UI starts here
+(defvar hi2-dyn-show-indentations
+  "Whether showing of indentation points is enabled in this buffer.")
+(make-variable-buffer-local 'hi2-dyn-show-indentations)
+(defvar hi2-dyn-overlays nil
+  "Overlays used by hi2-enable-show-indentations.")
+(make-variable-buffer-local 'hi2-dyn-overlays)
+
+(defun hi2-init-overlay ()
+  "Returns a new overlay."
+  (let ((o (make-overlay 1 1)))
+    (overlay-put o 'face '((:underline t)))
+    o))
+
+(defun hi2-init-overlays (n)
+  "Makes sure that hi2-dyn-overlays contains at least N overlays."
+  (let* ((clen (length hi2-dyn-overlays))
+         (needed (- n clen)))
+    (dotimes (n needed hi2-dyn-overlays)
+      (setq hi2-dyn-overlays
+            (cons (hi2-init-overlay) hi2-dyn-overlays)))))
+
+(defun hi2-unshow-overlays ()
+  "Unshows all the overlays."
+  (mapc #'delete-overlay hi2-dyn-overlays))
+
+(defun hi2-show-overlays ()
+  "Put an underscore overlay at all the indentations points in
+the current buffer."
+  (if (and (eq major-mode 'haskell-mode)
+           (memq 'hi2-mode minor-mode-list)
+           hi2-dyn-show-indentations)
+      (save-excursion
+        (let* ((columns (progn
+                          (end-of-line)
+                          (current-column)))
+               (ci (hi2-current-indentation))
+               (inds
+                ;; filter out indentations that can't be showed,
+                ;; because the line is too short for them
+                (remove-if (lambda (i)
+                             (> i columns))
+                           (save-excursion
+                             (move-to-column ci); XXX: remove when hi2-find-indentations is fixed
+                             (hi2-find-indentations-safe))))
+               (overlays (hi2-init-overlays (length inds))))
+          (while inds
+            (move-to-column (car inds))
+            (move-overlay (car overlays) (point) (+ 1 (point)))
+            (setq inds (cdr inds))
+            (setq overlays (cdr overlays)))))))
+
+(defun hi2-enable-show-indentations ()
+  "Enable showing of indentation points in the current buffer."
+  (interactive)
+  (setq hi2-dyn-show-indentations t)
+  (add-hook 'change-major-mode-hook #'hi2-unshow-overlays nil t)
+  (add-hook 'pre-command-hook #'hi2-unshow-overlays nil t)
+  (add-hook 'post-command-hook #'hi2-show-overlays nil t))
+
+(defun hi2-disable-show-indentations ()
+  "Disable showing of indentation points in the current buffer."
+  (interactive)
+  (setq hi2-dyn-show-indentations nil)
+  (remove-hook 'post-command-hook #'hl2-show-overlays t)
+  (hi2-unshow-overlays)
+  (remove-hook 'change-major-mode-hook #'hi2-unshow-overlays t)
+  (remove-hook 'pre-command-hook #'hi2-unshow-overlays t))
 
 ;;---------------------------------------- parser starts here
 
