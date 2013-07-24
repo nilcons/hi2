@@ -23,4 +23,7 @@ Put `hi2.el` into your load-path and add this to .emacs:
 * Region indentation common case is supported: TAB and S-TAB is simply
   moving the whole region to the left/right.
 
+* The buffer is not changed when indentation is not changed (so there
+  are no undo points created and no dirty flag in the buffer).
+
 * The code for all this is somewhat commented and cleaned.

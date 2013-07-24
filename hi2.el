@@ -4,10 +4,10 @@
 ;; Copyright (C) 2009  Kristof Bastiaensen
 ;; This file is heavily based on haskell-indentation.el by Kristof.
 
-;;; Version: 20130724.1541
-;;; Keywords: indentation haskell
-;;; Author: Gergely Risko <gergely@risko.hu>
-;;; URL: https://github.com/errge/hi2
+;; Author: Gergely Risko <gergely@risko.hu>
+;; Version: 20130724.1612
+;; Keywords: indentation haskell
+;; URL: https://github.com/errge/hi2
 
 ;; This file is not part of GNU Emacs.
 
@@ -24,7 +24,7 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-;; Commentary:
+;;; Commentary:
 
 ;; This is a modified up version of haskell-indentation-mode bundled
 ;; with haskell-mode.  Currently the semantic parser is not changed,
@@ -37,6 +37,9 @@
 ;;     the line,
 ;;   - region indentation common case is supported: TAB and S-TAB
 ;;     is simply moving the whole region to the left/right,
+;;   - the buffer is not changed when indentation is not changed (so
+;;     there are no undo points created and no dirty flag in the
+;;     buffer),
 ;;   - the code for all this is somewhat commented and cleaned.
 
 ;; There is ongoing development on making this better and I invite
@@ -47,8 +50,8 @@
 ;; haskell-indentation-mode, I'm happy to merge it with haskell-mode,
 ;; but until this is moving fast, I want to keep it separate.
 
-;; Installation:
-;;
+;;; Installation:
+
 ;; To turn indentation on for all Haskell buffers under Haskell mode
 ;; <http://www.haskell.org/haskell-mode/> add this to .emacs:
 ;;
@@ -56,7 +59,12 @@
 ;;
 ;; Otherwise, call `hi2-mode'.
 
-;; TODOs:
+;;; TODOs:
+
+;;   - add underscore overlays in every,
+;;   - hi2-find-indentations should always go to the beginning of the
+;;     line and compute the indentations there; for this we need to
+;;     adapt auto-fill and newline-and-indent,
 ;;   - rename every def* to start with hi2-,
 ;;   - rename every dynamically scoped variable to start with hi2-dyn,
 ;;     and get rid of them, parsers have gone a long way since 1960...
@@ -163,7 +171,7 @@ buffer, but the point is on a non-literate (e.g. comment) line."
              (when (not (eq (char-after) ?>)) (error "literate bird command used on non-literate line"))
              t)))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; UI starts here
+;;---------------------------------------- UI starts here
 
 (defun hi2-auto-fill-function ()
   (when (> (current-column) fill-column)
@@ -181,26 +189,27 @@ buffer, but the point is on a non-literate (e.g. comment) line."
   "Reindent current line to COL, also move the point there if MOVE"
   ;; unfortunately save-excursion is not enough here, because the
   ;; point being in the deleted region can cause some complications
-  (let* ((start-cc (current-column))
-         (start-ci (current-indentation))
-         (start-situation (if (< start-cc start-ci)
-                              'in-whitespace
-                            'in-code)))
-    (beginning-of-line)
-    (delete-region (point)
-                   (progn
-                     (when (hi2-birdp 'force) (forward-char))
-                     (skip-syntax-forward "-")
-                     (point)))
-    (when (hi2-birdp) (insert ">"))
-    (indent-to col)
-    (if move
-        (move-to-column col)
-      ;; restore original point
-      (move-to-column
-       (if (eq start-situation 'in-code)
-           (+ col (- start-cc start-ci))
-         start-cc)))))
+  (let* ((cc (current-column))
+         (ci (current-indentation))
+         (situation (if (< cc ci)
+                        'in-whitespace
+                      'in-code)))
+    (when (not (= ci col))
+      (beginning-of-line)
+      (delete-region (point)
+                     (progn
+                       (when (hi2-birdp 'force) (forward-char))
+                       (skip-syntax-forward "-")
+                       (point)))
+      (when (hi2-birdp) (insert ">"))
+      (indent-to col)
+      (if move
+          (move-to-column col)
+        ;; restore original point
+        (move-to-column
+         (if (eq situation 'in-code)
+             (+ col (- cc ci))
+           cc))))))
 
 (defun hi2-indent-rigidly (start end arg)
   "Indent all lines starting in the region sideways by ARG columns.
@@ -367,7 +376,7 @@ indentation points to the right, we switch going to the left."
           (hi2-reindent-to (car (hi2-first-indentation)) cursor-in-whitespace)
         (hi2-reindent-to pi cursor-in-whitespace))))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; parser starts here
+;;---------------------------------------- parser starts here
 
 ;; PARSER TODOS:
 ;; - why is there an indentation point at 2 after an import?
