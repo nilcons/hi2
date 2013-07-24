@@ -398,19 +398,13 @@ indentation points to the right, we switch going to the left."
   "Overlays used by hi2-enable-show-indentations.")
 (make-variable-buffer-local 'hi2-dyn-overlays)
 
-(defun hi2-init-overlay ()
-  "Returns a new overlay."
-  (let ((o (make-overlay 1 1)))
-    (overlay-put o 'face '((:underline t)))
-    o))
-
 (defun hi2-init-overlays (n)
   "Makes sure that hi2-dyn-overlays contains at least N overlays."
   (let* ((clen (length hi2-dyn-overlays))
          (needed (- n clen)))
     (dotimes (n needed hi2-dyn-overlays)
       (setq hi2-dyn-overlays
-            (cons (hi2-init-overlay) hi2-dyn-overlays)))))
+            (cons (make-overlay 1 1) hi2-dyn-overlays)))))
 
 (defun hi2-unshow-overlays ()
   "Unshows all the overlays."
@@ -427,20 +421,40 @@ the current buffer."
                           (end-of-line)
                           (current-column)))
                (ci (hi2-current-indentation))
+               (allinds (save-excursion
+                          (move-to-column ci); XXX: remove when hi2-find-indentations is fixed
+                          ;; don't freak out on parse-error
+                          (condition-case e
+                              (hi2-find-indentations-safe)
+                            (parse-error nil))))
                (inds
                 ;; filter out indentations that can't be showed,
                 ;; because the line is too short for them
-                (remove-if (lambda (i)
-                             (> i columns))
-                           (save-excursion
-                             (move-to-column ci); XXX: remove when hi2-find-indentations is fixed
-                             (hi2-find-indentations-safe))))
-               (overlays (hi2-init-overlays (length inds))))
+                (remove-if (lambda (i) (>= i columns)) allinds))
+               (overinds
+                ;; indentations that are behind the last column
+                (member-if (lambda (i) (>= i columns)) allinds))
+               ;; leave space for an extra overlay to show overinds
+               (overlays (hi2-init-overlays (+ 1 (length inds)))))
           (while inds
             (move-to-column (car inds))
+            (overlay-put (car overlays) 'face '((:underline t)))
+            (overlay-put (car overlays) 'after-string nil)
             (move-overlay (car overlays) (point) (+ 1 (point)))
             (setq inds (cdr inds))
-            (setq overlays (cdr overlays)))))))
+            (setq overlays (cdr overlays)))
+          (when overinds
+            (let ((o (car overlays))
+                  (s (make-string (+ 1 (- (car (last overinds)) columns)) ? )))
+              ;; http://lists.gnu.org/archive/html/bug-gnu-emacs/2013-03/msg00079.html
+              (put-text-property 0 1 'cursor t s)
+              ;; put in the underlines
+              (dolist (i overinds)
+                (put-text-property (- i columns) (+ 1 (- i columns)) 'face 'underline s))
+              (overlay-put o 'face '((:underline nil)))
+              (overlay-put o 'after-string s)
+              (end-of-line)
+              (move-overlay o (point) (point))))))))
 
 (defun hi2-enable-show-indentations ()
   "Enable showing of indentation points in the current buffer."
