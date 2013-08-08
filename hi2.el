@@ -426,7 +426,7 @@ indentation points to the right, we switch going to the left."
 (defun hi2-show-overlays ()
   "Put an underscore overlay at all the indentations points in
 the current buffer."
-  (if (and (eq major-mode 'haskell-mode)
+  (if (and (memq major-mode '(haskell-mode literate-haskell-mode))
            (memq 'hi2-mode minor-mode-list)
            hi2-dyn-show-indentations)
       (save-excursion
