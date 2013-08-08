@@ -26,9 +26,9 @@
 
 ;;; Commentary:
 
-;; This is a modified version of haskell-indentation-mode bundled with
-;; haskell-mode.  Currently the semantic parser is not changed, but
-;; the UI of tab completion is reworked.  Most notably
+;; This is a modified version of haskell-indentation-mode.  Currently
+;; the semantic parser is not changed, but the UI of tab completion is
+;; reworked.  Most notably:
 ;;   - DEL and C-d is not mapped:
 ;;       if you want to indent backwards, you can use S-TAB,
 ;;   - TAB steps to the right as before, but when the end is reached,
@@ -40,8 +40,9 @@
 ;;   - the current indentations are shown as underscores in the
 ;;     current line, so you have some visual indication (can be turned
 ;;     off by setting `hi2-show-indentations' to nil in your init
-;;     fileor calling `hi2-disable-show-indentations' from the
-;;     buffer),
+;;     file or calling `hi2-disable-show-indentations' from the
+;;     buffer, if there are issues, also check
+;;     hi2-show-indentations-after-eol),
 ;;   - the buffer is not changed when indentation is not changed (so
 ;;     there are no undo points created and no dirty flag in the
 ;;     buffer),
@@ -66,7 +67,6 @@
 
 ;;; TODOs:
 
-;;   - add underscore overlays in every,
 ;;   - hi2-find-indentations should always go to the beginning of the
 ;;     line and compute the indentations there; for this we need to
 ;;     adapt auto-fill and newline-and-indent,
