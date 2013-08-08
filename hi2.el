@@ -348,7 +348,8 @@ indentation points to the right, we switch going to the left."
   (cond
    ((and (memq last-command '(indent-for-tab-command hi2-indent-backwards))
          (eq hi2-dyn-last-direction 'region))
-    (hi2-indent-rigidly (region-beginning) (region-end) 1)
+    (let ((mark-even-if-inactive t))
+      (hi2-indent-rigidly (region-beginning) (region-end) 1))
     t)
    ((and (eq last-command 'indent-for-tab-command)
          (memq hi2-dyn-last-direction '(left right))
@@ -373,8 +374,8 @@ indentation points to the right, we switch going to the left."
 
 (defun hi2-indent-region (start end)
   (setq hi2-dyn-last-direction 'region)
-  (message "Press TAB or S-TAB again to indent the region more")
-  (hi2-indent-rigidly start end 1))
+  (hi2-indent-rigidly start end 1)
+  (message "Press TAB or S-TAB again to indent the region more"))
 
 (defun hi2-indent-backwards ()
   "Indent the current line to the previous indentation point"
@@ -382,11 +383,12 @@ indentation points to the right, we switch going to the left."
   (cond
    ((and (memq last-command '(indent-for-tab-command hi2-indent-backwards))
          (eq hi2-dyn-last-direction 'region))
-    (hi2-indent-rigidly (region-beginning) (region-end) -1))
+    (let ((mark-even-if-inactive t))
+      (hi2-indent-rigidly (region-beginning) (region-end) -1)))
    ((use-region-p)
     (setq hi2-dyn-last-direction 'region)
-    (message "Press TAB or S-TAB again to indent the region more")
-    (hi2-indent-rigidly (region-beginning) (region-end) -1))
+    (hi2-indent-rigidly (region-beginning) (region-end) -1)
+    (message "Press TAB or S-TAB again to indent the region more"))
    (t
     (setq hi2-dyn-last-direction nil)
     (let* ((cc (current-column))
