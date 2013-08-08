@@ -76,6 +76,7 @@
 
 ;;; Code:
 
+(require 'hl-line)
 (require 'syntax)
 (with-no-warnings (require 'cl))
 
@@ -95,6 +96,24 @@ underscore overlays in new haskell-mode buffers.  Use
 to switch the behavior for already existing buffers."
   :type 'boolean
   :group 'hi2)
+
+(defcustom hi2-show-indentations-after-eol t
+  "If t, try to show indentation points after the end of line.
+This requires strange overlay hacks and can collide with other
+modes (e.g. fill-column-indicator)."
+  :type 'boolean
+  :group 'hi2)
+
+(defface hi2-show-normal-face
+  '((t :underline t))
+  "Default face for indentations overlay."
+  :group 'hl2)
+
+(defface hi2-show-hl-line-face
+  '((t :underline t :inherit hl-line))
+  "Face used for indentations overlay after EOL if hl-line mode is enabled."
+  :group 'hl2)
+
 
 (defcustom hi2-layout-offset 2
   "Extra indentation to add before expressions in a haskell layout list."
@@ -427,31 +446,38 @@ the current buffer."
                           (condition-case e
                               (hi2-find-indentations-safe)
                             (parse-error nil))))
-               (inds
-                ;; filter out indentations that can't be showed,
-                ;; because the line is too short for them
-                (remove-if (lambda (i) (>= i columns)) allinds))
-               (overinds
-                ;; indentations that are behind the last column
-                (member-if (lambda (i) (>= i columns)) allinds))
-               ;; leave space for an extra overlay to show overinds
+               ;; indentations that are easy to show
+               (inds (remove-if (lambda (i) (>= i columns)) allinds))
+               ;; tricky indentations, that are after the current EOL
+               (overinds (member-if (lambda (i) (>= i columns)) allinds))
+               ;; +1: leave space for an extra overlay to show overinds
                (overlays (hi2-init-overlays (+ 1 (length inds)))))
           (while inds
             (move-to-column (car inds))
-            (overlay-put (car overlays) 'face '((:underline t)))
+            (overlay-put (car overlays) 'face 'hi2-show-normal-face)
             (overlay-put (car overlays) 'after-string nil)
             (move-overlay (car overlays) (point) (+ 1 (point)))
             (setq inds (cdr inds))
             (setq overlays (cdr overlays)))
-          (when overinds
+          (when (and overinds
+                     hi2-show-indentations-after-eol)
             (let ((o (car overlays))
                   (s (make-string (+ 1 (- (car (last overinds)) columns)) ? )))
-              ;; http://lists.gnu.org/archive/html/bug-gnu-emacs/2013-03/msg00079.html
+              ;; needed for the cursor to be in the good position, see:
+              ;;   http://lists.gnu.org/archive/html/bug-gnu-emacs/2013-03/msg00079.html
               (put-text-property 0 1 'cursor t s)
-              ;; put in the underlines
+              ;; color the whole line ending overlay with hl-line face if needed
+              (when (or hl-line-mode global-hl-line-mode)
+                (put-text-property 0 (length s) 'face 'hl-line s))
+              ;; put in the underlines at the correct positions
               (dolist (i overinds)
-                (put-text-property (- i columns) (+ 1 (- i columns)) 'face 'underline s))
-              (overlay-put o 'face '((:underline nil)))
+                (put-text-property
+                 (- i columns) (+ 1 (- i columns))
+                 'face (if (or hl-line-mode global-hl-line-mode)
+                           'hi2-show-hl-line-face
+                         'hi2-show-normal-face)
+                 s))
+              (overlay-put o 'face nil)
               (overlay-put o 'after-string s)
               (end-of-line)
               (move-overlay o (point) (point))))))))
