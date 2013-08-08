@@ -220,29 +220,15 @@ buffer, but the point is on a non-literate (e.g. comment) line."
 
 (defun hi2-reindent-to (col &optional move)
   "Reindent current line to COL, also move the point there if MOVE"
-  ;; unfortunately save-excursion is not enough here, because the
-  ;; point being in the deleted region can cause some complications
   (let* ((cc (current-column))
-         (ci (current-indentation))
-         (situation (if (< cc ci)
-                        'in-whitespace
-                      'in-code)))
-    (when (not (= ci col))
-      (beginning-of-line)
-      (delete-region (point)
-                     (progn
-                       (when (hi2-birdp 'force) (forward-char))
-                       (skip-syntax-forward "-")
-                       (point)))
-      (when (hi2-birdp) (insert ">"))
-      (indent-to col)
-      (if move
-          (move-to-column col)
-        ;; restore original point
-        (move-to-column
-         (if (eq situation 'in-code)
-             (+ col (- cc ci))
-           cc))))))
+         (ci (hi2-current-indentation)))
+    (save-excursion
+      (move-to-column ci)
+      (if (<= ci col)
+          (insert-before-markers (make-string (- col ci) ? ))
+        (delete-char (- col ci))))
+    (when move
+      (move-to-column col))))
 
 (defun hi2-indent-rigidly (start end arg)
   "Indent all lines starting in the region sideways by ARG columns.
@@ -254,14 +240,14 @@ Handles bird style literate haskell too."
     (goto-char end)
     (let ((end-marker (point-marker)))
       (goto-char start)
-      (or (bolp) (forward-line 1))
+      (or (bolp) (forward-line 0))
       (while (< (point) end-marker)
         (let ((ci (hi2-current-indentation)))
           (when (and t
                      (eq (char-after) ?>))
             (forward-char 1))
           (skip-syntax-forward "-")
-          (when (not (eolp))
+          (unless (eolp)
             (hi2-reindent-to (max 0 (+ ci arg))))
           (forward-line 1)))
       (move-marker end-marker nil))))
@@ -332,11 +318,11 @@ can continue by repeatedly pressing TAB.  When there is no more
 indentation points to the right, we switch going to the left."
   ;; try to repeat
   (when (not (hi2-indent-line-repeat))
+    (setq hi2-dyn-last-direction nil)
     ;; do nothing if we're inside a string or comment
-    (when
-        (save-excursion
-          (beginning-of-line)
-          (not (nth 8 (syntax-ppss))))
+    (unless (save-excursion
+              (beginning-of-line)
+              (nth 8 (syntax-ppss)))
       ;; parse error is intentionally not catched here, it may come from
       ;; hi2-find-indentations-safe, but escapes the scope and aborts the
       ;; opertaion before any moving happens
@@ -362,7 +348,8 @@ indentation points to the right, we switch going to the left."
   (cond
    ((and (memq last-command '(indent-for-tab-command hi2-indent-backwards))
          (eq hi2-dyn-last-direction 'region))
-    (hi2-indent-rigidly (mark) (point) 1))
+    (hi2-indent-rigidly (region-beginning) (region-end) 1)
+    t)
    ((and (eq last-command 'indent-for-tab-command)
          (memq hi2-dyn-last-direction '(left right))
          hi2-dyn-last-indentations)
@@ -380,10 +367,13 @@ indentation points to the right, we switch going to the left."
           ;; behavior is very confusing in that case
           (when (< 2 (length hi2-dyn-last-indentations))
             (hi2-reindent-to hi2-dyn-first-position))
-          (hi2-indent-line-repeat)))))))
+          (hi2-indent-line-repeat))))
+    t)
+   (t nil)))
 
 (defun hi2-indent-region (start end)
   (setq hi2-dyn-last-direction 'region)
+  (message "Press TAB or S-TAB again to indent the region more")
   (hi2-indent-rigidly start end 1))
 
 (defun hi2-indent-backwards ()
@@ -392,11 +382,13 @@ indentation points to the right, we switch going to the left."
   (cond
    ((and (memq last-command '(indent-for-tab-command hi2-indent-backwards))
          (eq hi2-dyn-last-direction 'region))
-    (hi2-indent-rigidly (mark) (point) -1))
+    (hi2-indent-rigidly (region-beginning) (region-end) -1))
    ((use-region-p)
     (setq hi2-dyn-last-direction 'region)
-    (hi2-indent-rigidly (mark) (point) -1))
+    (message "Press TAB or S-TAB again to indent the region more")
+    (hi2-indent-rigidly (region-beginning) (region-end) -1))
    (t
+    (setq hi2-dyn-last-direction nil)
     (let* ((cc (current-column))
            (ci (hi2-current-indentation))
            (inds (save-excursion
