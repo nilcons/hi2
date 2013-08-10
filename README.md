@@ -7,7 +7,7 @@ haskell-indentation, 2nd try.
 Put `hi2.el` into your load-path and add this to .emacs:
 
     (require 'hi2)
-    (add-hook haskell-mode-hook 'turn-on-hi2)
+    (add-hook 'haskell-mode-hook 'turn-on-hi2)
 
 The package can also be found on MELPA, if you install from there, you
 can leave out the require line above.
