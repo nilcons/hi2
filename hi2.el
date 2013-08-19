@@ -507,9 +507,34 @@ the current buffer."
 
 ;; PARSER TODOS:
 ;; - why is there an indentation point at 2 after an import?
+;;   because you can write:
+;;
+;;   import A
+;;     (a, b, c)
+;;
+;;   But at least we should fix this:
+;;
+;;   import A (a)
+;;     (b)    <- why there is an indentation point at 2 here?
+;;
+;;   and maybe have a setq for the first case
+
 ;; - why there are no indentation points at all before data in this file:
 ;;     import A
 ;;     data Foo
+
+;; - there should be an indentation point at 2 in the second line:
+;;
+;;   data Person = Person
+;;                 { firstName :: !String  -- ^ First name
+;;                 , lastName  :: !String  -- ^ Last name
+;;                 , age       :: !Int     -- ^ Age
+;;                 } deriving (Eq, Show)
+;;
+;;   see: https://github.com/errge/hi2/issues/4
+
+;; - module export list indentation is inconsistent, see:
+;;   https://github.com/errge/hi2/issues/3
 
 ;; Dynamically scoped variables.
 (defvar following-token)
