@@ -81,8 +81,8 @@
 ;;     line and compute the indentations there; for this we need to
 ;;     adapt auto-fill and newline-and-indent,
 ;;   - rename every def* to start with hi2-,
-;;   - rename every dynamically scoped variable to start with hi2-dyn,
-;;     and get rid of them, parsers have gone a long way since 1960...
+;;   - research emacs parser writing, maybe we can have something more
+;;     maintainable than dynamically scoped variables;
 
 ;;; Code:
 
@@ -507,9 +507,34 @@ the current buffer."
 
 ;; PARSER TODOS:
 ;; - why is there an indentation point at 2 after an import?
+;;   because you can write:
+;;
+;;   import A
+;;     (a, b, c)
+;;
+;;   But at least we should fix this:
+;;
+;;   import A (a)
+;;     (b)    <- why there is an indentation point at 2 here?
+;;
+;;   and maybe have a setq for the first case
+
 ;; - why there are no indentation points at all before data in this file:
 ;;     import A
 ;;     data Foo
+
+;; - there should be an indentation point at 2 in the second line:
+;;
+;;   data Person = Person
+;;                 { firstName :: !String  -- ^ First name
+;;                 , lastName  :: !String  -- ^ Last name
+;;                 , age       :: !Int     -- ^ Age
+;;                 } deriving (Eq, Show)
+;;
+;;   see: https://github.com/errge/hi2/issues/4
+
+;; - module export list indentation is inconsistent, see:
+;;   https://github.com/errge/hi2/issues/3
 
 ;; The parser is implemented als a recursive descent parser.  Each
 ;; parser advances the point to after the expression it parses, and
