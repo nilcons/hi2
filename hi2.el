@@ -81,9 +81,8 @@
 ;;     line and compute the indentations there; for this we need to
 ;;     adapt auto-fill and newline-and-indent,
 ;;   - rename every def* to start with hi2-,
-;;   - research emacs parser writing, maybe we can have something more
-;;     maintainable than dinamically scoped variables; or write
-;;     comments at least.
+;;   - rename every dynamically scoped variable to start with hi2-dyn,
+;;     and get rid of them, parsers have gone a long way since 1960...
 
 ;;; Code:
 
@@ -508,45 +507,39 @@ the current buffer."
 
 ;; PARSER TODOS:
 ;; - why is there an indentation point at 2 after an import?
-;;   because you can write:
-;;
-;;   import A
-;;     (a, b, c)
-;;
-;;   But at least we should fix this:
-;;
-;;   import A (a)
-;;     (b)    <- why there is an indentation point at 2 here?
-;;
-;;   and maybe have a setq for the first case
-
 ;; - why there are no indentation points at all before data in this file:
 ;;     import A
 ;;     data Foo
 
-;; - there should be an indentation point at 2 in the second line:
-;;
-;;   data Person = Person
-;;                 { firstName :: !String  -- ^ First name
-;;                 , lastName  :: !String  -- ^ Last name
-;;                 , age       :: !Int     -- ^ Age
-;;                 } deriving (Eq, Show)
-;;
-;;   see: https://github.com/errge/hi2/issues/4
+;; The parser is implemented als a recursive descent parser.  Each
+;; parser advances the point to after the expression it parses, and
+;; sets the dynamic scoped variables containing the information about
+;; the indentations.  The dynamic scoping allows transparent
+;; backtracking to previous states of these variables.  A new state
+;; can be set using LET.  When the scope of this function ends,
+;; the variable is automatically reverted to it's old value.
 
-;; - module export list indentation is inconsistent, see:
-;;   https://github.com/errge/hi2/issues/3
+;; This is basicly a performance hack.  It would have been possible
+;; to thread this state using a association-list through the parsers, but it
+;; would be probably more complicated and slower due to the lack
+;; of real closures in ELISP.
+;;
+;; When finished parsing, the tokenizer returns 'end-token, and
+;; following-token is set to the token after point.  The parser adds
+;; its indentations to possible-indentations and returns to it's
+;; parent, or exits non-locally by throwing parse-end, so that the
+;; parent will not add new indentations to it.
 
-;; Dynamically scoped variables.
-(defvar following-token)
-(defvar current-token)
-(defvar left-indent)
-(defvar starter-indent)
-(defvar current-indent)
-(defvar layout-indent)
-(defvar parse-line-number)
-(defvar possible-indentations)
-(defvar indentation-point)
+;; the parse 'state':
+(defvar following-token)   ;; the next token after parsing finished
+(defvar current-token)     ;;; the token at the current parser point or a pseudo-token (see hi2-read-next-token)
+(defvar left-indent)       ;; most left possible indentation
+(defvar starter-indent)    ;; column at a keyword
+(defvar current-indent)    ;; the most right indentation
+(defvar layout-indent)     ;; the column of the layout list
+(defvar parse-line-number) ;; the number of lines parsed
+(defvar possible-indentations) ;; the return value of the indentations
+(defvar indentation-point) ;; where to stop parsing
 
 (defun hi2-goto-least-indentation ()
   (beginning-of-line)
@@ -627,10 +620,8 @@ the current buffer."
 
 ;; XXX: this is a hack, the parser shouldn't return nil without parse-error
 (defun hi2-find-indentations-safe ()
-  (let ((ret (hi2-find-indentations)))
-    (if ret
-        ret
-      (hi2-first-indentation))))
+  (or (hi2-find-indentations)
+      (hi2-first-indentation)))
 
 (defconst hi2-unicode-tokens
   '(("→" . "->")     ;; #x2192 RIGHTWARDS ARROW
@@ -645,6 +636,7 @@ the current buffer."
     ("★" . "*"))     ;; #x2605 BLACK STAR
   "Translation dictionary from UnicodeSyntax tokens to their ASCII representation.")
 
+;; toplevel keywords
 (defconst hi2-toplevel-list
   '(("module" . hi2-module)
     ("data" . (lambda () (hi2-statement-right #'hi2-data)))
@@ -653,16 +645,15 @@ the current buffer."
     ("class" . hi2-class-declaration)
     ("instance" . hi2-class-declaration )))
 
+;; tokens in type declarations
 (defconst hi2-type-list
   '(("::"    . (lambda () (hi2-with-starter
-                           (lambda () (hi2-separated #'hi2-type "->" nil)) nil)))
-    ("("     . (lambda () (hi2-list #'hi2-type
-                                                    ")" "," nil)))
-    ("["     . (lambda () (hi2-list #'hi2-type
-                                                    "]" "," nil)))
-    ("{"     . (lambda () (hi2-list #'hi2-type
-                                                    "}" "," nil)))))
+                           (lambda () (hi2-separated #'hi2-type "->")))))
+    ("("     . (lambda () (hi2-list #'hi2-type ")" ",")))
+    ("["     . (lambda () (hi2-list #'hi2-type "]" ",")))
+    ("{"     . (lambda () (hi2-list #'hi2-type "}" ",")))))
 
+;; keywords in expressions
 (defconst hi2-expression-list
   '(("data" . hi2-data)
     ("type" . hi2-data)
@@ -675,58 +666,52 @@ the current buffer."
                            '(hi2-declaration-layout
                              "in" hi2-expression))))
     ("do"    . (lambda () (hi2-with-starter
-                           #'hi2-expression-layout nil)))
+                           #'hi2-expression-layout)))
     ("mdo"   . (lambda () (hi2-with-starter
-                           #'hi2-expression-layout nil)))
+                           #'hi2-expression-layout)))
     ("rec"   . (lambda () (hi2-with-starter
-                           #'hi2-expression-layout nil)))
+                           #'hi2-expression-layout)))
     ("case"  . (lambda () (hi2-phrase
                            '(hi2-expression
                              "of" hi2-case-layout))))
     ("\\"    . (lambda () (hi2-with-starter
-                           #'hi2-lambda-maybe-lambdacase nil)))
+                           #'hi2-lambda-maybe-lambdacase)))
     ("proc"  . (lambda () (hi2-phrase
                            '(hi2-expression
                              "->" hi2-expression))))
     ("where" . (lambda () (hi2-with-starter
                            #'hi2-declaration-layout nil t)))
     ("::"    . (lambda () (hi2-with-starter
-                           (lambda () (hi2-separated #'hi2-type "->" nil)) nil)))
+                           (lambda () (hi2-separated #'hi2-type "->")))))
     ("="     . (lambda () (hi2-statement-right #'hi2-expression)))
     ("<-"    . (lambda () (hi2-statement-right #'hi2-expression)))
-    ("("     . (lambda () (hi2-list #'hi2-expression
-                                                    ")" '(list "," "->") nil)))
-    ("["     . (lambda () (hi2-list #'hi2-expression
-                                                    "]" "," "|")))
-    ("{"     . (lambda () (hi2-list #'hi2-expression
-                                                    "}" "," nil)))))
-
+    ("("     . (lambda () (hi2-list #'hi2-expression ")" '(list "," "->"))))
+    ("["     . (lambda () (hi2-list #'hi2-expression "]" "," "|")))
+    ("{"     . (lambda () (hi2-list #'hi2-expression "}" ",")))))
+;; a layout list with expressions, such as after do
 (defun hi2-expression-layout ()
   (hi2-layout #'hi2-expression))
 
+;; a layout list with declarations, such as after where
 (defun hi2-declaration-layout ()
   (hi2-layout #'hi2-declaration))
 
+;; a layout list with case expressions 
 (defun hi2-case-layout ()
   (hi2-layout #'hi2-case))
 
-;; After a lambda (backslash) there are two possible cases:
-;;   - the new lambdacase expression, that can be recognized by the
-;;     next token being "case",
-;;   - or simply an anonymous function definition in the form of
-;;     "expression -> expression".
+;; a lambda expression
 (defun hi2-lambda-maybe-lambdacase ()
   (if (string= current-token "case")
       (hi2-with-starter
-       #'hi2-case-layout nil)
+       #'hi2-case-layout)
     (hi2-phrase-rest
      '(hi2-expression "->" hi2-expression))))
 
+;; a functional dependency
 (defun hi2-fundep ()
   (hi2-with-starter
-   (lambda () (hi2-separated
-               #'hi2-fundep1 "," nil))
-   nil))
+   (lambda () (hi2-separated #'hi2-fundep1 ","))))
 
 (defun hi2-fundep1 ()
   (let ((current-indent (current-column)))
@@ -736,6 +721,7 @@ the current buffer."
                (member following-token '(value "->")))
       (hi2-add-indentation current-indent))))
 
+;; the toplevel parser
 (defun hi2-toplevel ()
   (hi2-layout
    (lambda ()
@@ -744,6 +730,7 @@ the current buffer."
            (funcall (cdr parser))
          (hi2-declaration))))))
 
+;; a type declaration
 (defun hi2-type ()
   (let ((current-indent (current-column)))
     (catch 'return
@@ -764,6 +751,7 @@ the current buffer."
                   (throw 'return nil)
                 (funcall (cdr parser))))))))))
 
+;; a data or type declaration
 (defun hi2-data ()
   (hi2-with-starter
    (lambda ()
@@ -776,9 +764,9 @@ the current buffer."
              nil))
            ((string= current-token "where")
             (hi2-with-starter
-             #'hi2-expression-layout nil))))
-   nil))
+             #'hi2-expression-layout nil))))))
 
+;; a class declaration
 (defun hi2-class-declaration ()
   (hi2-with-starter
    (lambda ()
@@ -787,9 +775,9 @@ the current buffer."
        (hi2-fundep))
      (when (string= current-token "where")
        (hi2-with-starter
-        #'hi2-expression-layout nil)))
-   nil))
+        #'hi2-expression-layout)))))
 
+;; a module declaration
 (defun hi2-module ()
   (hi2-with-starter
    (lambda ()
@@ -798,7 +786,7 @@ the current buffer."
        (when (string= current-token "(")
          (hi2-list
           #'hi2-module-export
-          ")" "," nil))
+          ")" ","))
        (when (eq current-token 'end-tokens)
          (hi2-add-indentation current-indent)
          (throw 'parse-end nil))
@@ -807,9 +795,9 @@ the current buffer."
          (when (eq current-token 'end-tokens)
            (hi2-add-layout-indent)
            (throw 'parse-end nil))
-         (hi2-layout #'hi2-toplevel))))
-   nil))
+         (hi2-layout #'hi2-toplevel))))))
 
+;; an export list
 (defun hi2-module-export ()
   (cond ((string= current-token "module")
          (let ((current-indent (current-column)))
@@ -820,53 +808,63 @@ the current buffer."
                   (hi2-read-next-token)))))
         (t (hi2-type))))
 
-(defun hi2-list (parser end sep stmt-sep)
+;; an list, pair or other expression containing multiple
+;; items parsed by parser, separated by sep or stmt-sep, and ending in
+;; end.
+(defun hi2-list (parser end sep &optional stmt-sep)
   (hi2-with-starter
    `(lambda () (hi2-separated #',parser
-                                              ,sep
-                                              ,stmt-sep))
+			      ,sep
+			      ,stmt-sep))
    end))
 
-(defun hi2-with-starter (parser end &optional where-expr?)
+;; An expression starting with a keyword or paren.  Skip the keyword
+;; or paren.
+(defun hi2-with-starter (parser &optional end where-expr?)
   (let ((starter-column (current-column))
         (current-indent current-indent)
         (left-indent (if (= (current-column) (hi2-current-indentation))
                          (current-column) left-indent)))
     (hi2-read-next-token)
+
     (when (eq current-token 'end-tokens)
-      (if (equal following-token end)
-          (hi2-add-indentation starter-column)
-        (if where-expr?
-            (hi2-add-where-post-indent left-indent)
-          (hi2-add-indentation
-           (+ left-indent hi2-left-offset))))
+      (cond ((equal following-token end)
+	     (hi2-add-indentation starter-column)) ; indent before keyword or paren
+	    (where-expr?
+	     (hi2-add-where-post-indent left-indent)) ;; left indent + where post indent
+	    (t
+	     (hi2-add-indentation
+	      (+ left-indent hi2-left-offset))))  ;; just left indent + left offset
       (throw 'parse-end nil))
+
     (let* ((current-indent (current-column))
            (starter-indent (min starter-column current-indent))
            (left-indent (if end (+ current-indent hi2-starter-offset)
                           left-indent)))
-      (funcall parser)
+      (funcall parser) ;; run parser
       (cond ((eq current-token 'end-tokens)
              (when (equal following-token end)
-               (hi2-add-indentation starter-indent))
-             (when end (throw 'parse-end nil))) ;; add no indentations
+               (hi2-add-indentation starter-indent))  ; indent before keyword or paren
+             (when end (throw 'parse-end nil))) ;; add no more indentations if we expect a closing keyword
             ((equal current-token end)
              (hi2-read-next-token)) ;; continue
             (end (parse-error "Illegal token: %s" current-token))))))
 
+;; a case expression
 (defun hi2-case ()
   (hi2-expression)
   (cond ((eq current-token 'end-tokens)
          (hi2-add-indentation current-indent))
         ((string= current-token "|")
          (hi2-with-starter
-          (lambda () (hi2-separated #'hi2-case "|" nil))
-          nil))
+          (lambda () (hi2-separated #'hi2-case "|"))))
         ((string= current-token "->")
          (hi2-statement-right #'hi2-expression))
         ;; otherwise fallthrough
         ))
 
+;; the right side of a statement.  Sets current-indent
+;; to the current column and cals the given parser.
 (defun hi2-statement-right (parser)
     (hi2-read-next-token)
     (when (eq current-token 'end-tokens)
@@ -876,65 +874,58 @@ the current buffer."
     (let ((current-indent (current-column)))
           (funcall parser)))
 
-(defun hi2-simple-declaration ()
-  (hi2-expression)
-  (cond ((string= current-token "=")
-         (hi2-statement-right #'hi2-expression))
-        ((string= current-token "::")
-         (hi2-statement-right #'hi2-type))
-        ((and (eq current-token 'end-tokens)
-              (string= following-token "="))
-         (hi2-add-indentation current-indent)
-         (throw 'parse-end nil))))
-
+;; function or type declaration
 (defun hi2-declaration ()
   (hi2-expression)
   (cond ((string= current-token "|")
          (hi2-with-starter
-          (lambda () (hi2-separated #'hi2-expression "," "|"))
-          nil))
+          (lambda () (hi2-separated #'hi2-expression "," "|"))))
         ((eq current-token 'end-tokens)
          (when (member following-token '("|" "=" "::" ","))
            (hi2-add-indentation current-indent)
            (throw 'parse-end nil)))))
 
+;; enter a layout list, where each layout item is parsed by parser.
 (defun hi2-layout (parser)
   (if (string= current-token "{")
-      (hi2-list parser "}" ";" nil)
+      (hi2-list parser "}" ";") ;; explicit layout
     (hi2-implicit-layout-list parser)))
 
 (defun hi2-expression-token (token)
   (member token '("if" "let" "do" "case" "\\" "(" "[" "::"
                   value operator no-following-token)))
 
+;; parse an expression until an unknown token is encountered.
 (defun hi2-expression ()
   (let ((current-indent (current-column)))
     (catch 'return
       (while t
-        (cond
-         ((memq current-token '(value operator))
-          (hi2-read-next-token))
-
-         ((eq current-token 'end-tokens)
+	(while (memq current-token '(value operator))
+	  (hi2-read-next-token))  ; continue
+	
+	(cond 
+         ((eq current-token 'end-tokens) ; at the end
           (cond ((string= following-token "where")
-                 (hi2-add-where-pre-indent))
+                 (hi2-add-where-pre-indent)) ; before a where
                 ((hi2-expression-token following-token)
-                 (hi2-add-indentation
-                  current-indent)))
+                 (hi2-add-indentation current-indent))) ;; a normal expression
           (throw 'return nil))
 
          (t (let ((parser (assoc current-token hi2-expression-list)))
               (when (null parser)
-                (throw 'return nil))
-              (funcall (cdr parser))
+                (throw 'return nil)) ; not expression token, so exit
+	      (funcall (cdr parser)) ; run parser
               (when (and (eq current-token 'end-tokens)
                          (string= (car parser) "let")
                          (= hi2-layout-offset current-indent)
                          (hi2-expression-token following-token))
                 ;; inside a layout, after a let construct
+		;; for example: do let a = 20
                 (hi2-add-layout-indent)
                 (throw 'parse-end nil))
-              (unless (member (car parser) '("(" "[" "{" "do" "case"))
+
+	      ;; after an 'open' expression such as 'if', exit
+              (unless (member (car parser) '("(" "[" "{" "do" "case")) 
                 (throw 'return nil)))))))))
 
 (defun hi2-test-indentations ()
@@ -952,26 +943,44 @@ the current buffer."
     (newline)
     (insert str)))
 
-(defun hi2-separated (parser separator stmt-separator)
+
+;; evaluate parser separated by separator and stmt-separator.
+;; if stmt-separator is not nil, it will be used to set a
+;; new starter-indent.
+;; for example
+;; [ i | i <- [1..10]
+;;     ,
+(defun hi2-separated (parser separator &optional stmt-separator)
   (catch 'return
     (while t
       (funcall parser)
-      (cond ((if (listp separator) (member current-token separator) (equal current-token separator))
+      (cond ((equal current-token separator)
              (hi2-at-separator))
 
-            ((equal current-token stmt-separator)
+	    ((equal current-token stmt-separator)
              (setq starter-indent (current-column))
              (hi2-at-separator))
 
             ((eq current-token 'end-tokens)
-             (cond ((or (equal following-token separator)
+	     (cond ((or (equal following-token separator)
                         (equal following-token stmt-separator))
+		    ;; set an indentation before a separator,
+		    ;; for example:
+		    ;;  [ 1   or   [ 1 | a
+		    ;;  , 2            , 20
                     (hi2-add-indentation starter-indent)
                     (throw 'parse-end nil)))
              (throw 'return nil))
 
             (t (throw 'return nil))))))
 
+;; At a separator.
+;; If at a new line, set starter-indent at the separator
+;; and current-indent after the separator
+;; For example:
+;; l = [  1
+;;      , 2  
+;;      ,    -- start now here
 (defun hi2-at-separator ()
   (let ((separator-column
          (and (= (current-column) (hi2-current-indentation))
@@ -984,6 +993,8 @@ the current buffer."
            (setq current-indent (current-column))
            (setq starter-indent separator-column)))))
 
+;; An implicit layout list.  This sets the layout-indent
+;; variable to the column where the layout starts.
 (defun hi2-implicit-layout-list (parser)
   (let* ((layout-indent (current-column))
          (current-indent (current-column))
@@ -993,10 +1004,10 @@ the current buffer."
         (let ((left-indent left-indent))
           (funcall parser))
         (cond ((member current-token '(layout-next ";"))
-               (hi2-read-next-token))
+               (hi2-read-next-token))  ;; explicit separator
               ((eq current-token 'end-tokens)
                (when (or (hi2-expression-token following-token)
-                                         (string= following-token ";"))
+			 (string= following-token ";"))
                          (hi2-add-layout-indent))
                (throw 'return nil))
               (t (throw 'return nil))))))
@@ -1005,10 +1016,11 @@ the current buffer."
   (when (eq current-token 'layout-end)
     (hi2-read-next-token))) ;; leave layout at 'layout-end or illegal token
 
+;; Parse an expression separated by keywords, for example an
+;; "if expr then expr else expr" expression.
 (defun hi2-phrase (phrase)
   (hi2-with-starter
-   `(lambda () (hi2-phrase-rest ',phrase))
-   nil))
+   `(lambda () (hi2-phrase-rest ',phrase))))
 
 (defun hi2-phrase-rest (phrase)
   (let ((starter-line parse-line-number))
@@ -1026,8 +1038,9 @@ the current buffer."
                (throw 'parse-end nil)))
             (t (throw 'parse-end nil))))
 
-     ((null (cdr phrase)))
+     ((null (cdr phrase))) ;; no more parsers
 
+     ;; Following token should be (cadr phrase)
      ((equal (cadr phrase) current-token)
       (let* ((on-new-line (= (current-column) (hi2-current-indentation)))
              (lines-between (- parse-line-number starter-line))
@@ -1035,11 +1048,12 @@ the current buffer."
                               left-indent
                             starter-indent)))
         (hi2-read-next-token)
-        (when (eq current-token 'end-tokens)
+
+	(when (eq current-token 'end-tokens) ; end parsing
           (hi2-add-indentation
            (cond ((member (cadr phrase) '("then" "else"))
                   (+ starter-indent hi2-ifte-offset))
-                 ((member (cadr phrase) '("in" "->"))
+		 ((member (cadr phrase) '("in" "->"))
                   ;; expression ending in another expression
                   (if on-new-line
                       (+ left-indent hi2-starter-offset)
@@ -1084,6 +1098,20 @@ the current buffer."
         (parse-line-number 0)
         (indentation-point (mark)))
     (hi2-read-next-token)))
+
+;; Go to the next token and set current-token to the next token.
+;; The following symbols are used as pseudo tokens:
+;;
+;; 'layout-next: A new item in a layout list.  The next token
+;;               will be the first token from the item.
+;; 'layout-end:  the end of a layout list.  Next token will be
+;;               the first token after the layout list.
+;; 'end-tokens:  back at point where we started, following-token
+;;               will be set to the next token.
+;;
+;; if we are at a new line, parse-line is increased, and
+;; current-indent and left-indent are set to the indentation
+;; of the line.
 
 (defun hi2-read-next-token ()
   (cond ((eq current-token 'end-tokens)
