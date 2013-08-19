@@ -81,8 +81,9 @@
 ;;     line and compute the indentations there; for this we need to
 ;;     adapt auto-fill and newline-and-indent,
 ;;   - rename every def* to start with hi2-,
-;;   - rename every dynamically scoped variable to start with hi2-dyn,
-;;     and get rid of them, parsers have gone a long way since 1960...
+;;   - research emacs parser writing, maybe we can have something more
+;;     maintainable than dinamically scoped variables; or write
+;;     comments at least.
 
 ;;; Code:
 
