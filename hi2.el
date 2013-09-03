@@ -471,6 +471,7 @@ hi2-find-indentations-safe call inside hi2-show-overlays")
   (hi2-show-overlays-cancel-timer))
 
 (defun hi2-show-overlays-pre-command ()
+  (hi2-unshow-overlays)
   (hi2-show-overlays-cancel-timer))
 
 (defun hi2-show-overlays-post-command ()
@@ -482,10 +483,8 @@ overlays."
          (line-beginning-position))
       ; cache is usable
       (progn
-        (hi2-unshow-overlays)
         (hi2-show-overlays (cdr hi2-dyn-show-overlays-cache)))
     ; cache is not usable
-    (hi2-unshow-overlays)
     (hi2-show-overlays-schedule-timer)))
 
 (defun hi2-show-overlays (&optional cached-indentations)
