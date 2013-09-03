@@ -418,6 +418,7 @@ indentation points to the right, we switch going to the left."
 (defvar hi2-dyn-show-indentations
   "Whether showing of indentation points is enabled in this buffer.")
 (make-variable-buffer-local 'hi2-dyn-show-indentations)
+
 (defvar hi2-dyn-overlays nil
   "Overlays used by hi2-enable-show-indentations.")
 (make-variable-buffer-local 'hi2-dyn-overlays)
@@ -430,79 +431,123 @@ indentation points to the right, we switch going to the left."
       (setq hi2-dyn-overlays
             (cons (make-overlay 1 1) hi2-dyn-overlays)))))
 
+(defvar hi2-dyn-show-overlays-timer (timer-create)
+  "Timer used to schedule hi2-show-overlays.  Scheduled when we
+go to a new line and canceled in pre-command-hook if the user
+very quickly starts a new command.")
+(make-variable-buffer-local 'hi2-dyn-show-overlays-timer)
+(defun hi2-show-overlays-cancel-timer ()
+  "Cancels hi2-dyn-show-overlays-timer."
+  (when hi2-dyn-show-overlays-timer
+    (cancel-timer hi2-dyn-show-overlays-timer)))
+(defun hi2-show-overlays-schedule-timer ()
+  "Schedule a hi2-show-overlays run."
+  (setq hi2-dyn-show-overlays-timer
+        (run-with-timer 0.1 nil #'hi2-show-overlays)))
+
+(defvar hi2-dyn-show-overlays-cache '(-1 . nil)
+  "(line-beginning-position . indentations) at the previous
+hi2-find-indentations-safe call inside hi2-show-overlays")
+(make-variable-buffer-local 'hi2-dyn-show-overlays-cache)
+
 (defun hi2-unshow-overlays ()
   "Unshows all the overlays."
   (mapc #'delete-overlay hi2-dyn-overlays))
 
-(defun hi2-show-overlays ()
+(defun hi2-show-overlays-change-major-mode ()
+  (hi2-unshow-overlays)
+  (hi2-show-overlays-cancel-timer))
+
+(defun hi2-show-overlays-pre-command ()
+  (hi2-show-overlays-cancel-timer))
+
+(defun hi2-show-overlays-post-command ()
+  "Schedules a hi2-show-overlay run and deletes the overlays if
+the line is different than previously, so the cache is not
+usable.  If the cache is usable, just uses the cache to show the
+overlays."
+  (if (eq (car hi2-dyn-show-overlays-cache)
+          (line-beginning-position))
+      ; cache is usable
+      (progn
+        (hi2-unshow-overlays)
+        (hi2-show-overlays (cdr hi2-dyn-show-overlays-cache)))
+    ; cache is not usable
+    (hi2-unshow-overlays)
+    (hi2-show-overlays-schedule-timer)))
+
+(defun hi2-show-overlays (&optional cached-indentations)
   "Put an underscore overlay at all the indentations points in
 the current buffer."
-  (if (and (memq major-mode '(haskell-mode literate-haskell-mode))
-           (memq 'hi2-mode minor-mode-list)
-           hi2-dyn-show-indentations)
-      (save-excursion
-        (let* ((columns (progn
-                          (end-of-line)
-                          (current-column)))
-               (ci (hi2-current-indentation))
-               (allinds (save-excursion
-                          (move-to-column ci); XXX: remove when hi2-find-indentations is fixed
-                          ;; don't freak out on parse-error
-                          (condition-case e
-                              (hi2-find-indentations-safe)
-                            (parse-error nil))))
-               ;; indentations that are easy to show
-               (inds (remove-if (lambda (i) (>= i columns)) allinds))
-               ;; tricky indentations, that are after the current EOL
-               (overinds (member-if (lambda (i) (>= i columns)) allinds))
-               ;; +1: leave space for an extra overlay to show overinds
-               (overlays (hi2-init-overlays (+ 1 (length inds)))))
-          (while inds
-            (move-to-column (car inds))
-            (overlay-put (car overlays) 'face 'hi2-show-normal-face)
-            (overlay-put (car overlays) 'after-string nil)
-            (move-overlay (car overlays) (point) (+ 1 (point)))
-            (setq inds (cdr inds))
-            (setq overlays (cdr overlays)))
-          (when (and overinds
-                     hi2-show-indentations-after-eol)
-            (let ((o (car overlays))
-                  (s (make-string (+ 1 (- (car (last overinds)) columns)) ? )))
-              ;; needed for the cursor to be in the good position, see:
-              ;;   http://lists.gnu.org/archive/html/bug-gnu-emacs/2013-03/msg00079.html
-              (put-text-property 0 1 'cursor t s)
-              ;; color the whole line ending overlay with hl-line face if needed
-              (when (or hl-line-mode global-hl-line-mode)
-                (put-text-property 0 (length s) 'face 'hl-line s))
-              ;; put in the underlines at the correct positions
-              (dolist (i overinds)
-                (put-text-property
-                 (- i columns) (+ 1 (- i columns))
-                 'face (if (or hl-line-mode global-hl-line-mode)
-                           'hi2-show-hl-line-face
-                         'hi2-show-normal-face)
-                 s))
-              (overlay-put o 'face nil)
-              (overlay-put o 'after-string s)
-              (end-of-line)
-              (move-overlay o (point) (point))))))))
+  (when (and (memq major-mode '(haskell-mode literate-haskell-mode))
+             (memq 'hi2-mode minor-mode-list)
+             hi2-dyn-show-indentations)
+    (save-excursion
+      (let* ((columns (progn
+                        (end-of-line)
+                        (current-column)))
+             (ci (hi2-current-indentation))
+             (allinds (or cached-indentations
+                          (save-excursion
+                            (move-to-column ci); XXX: remove when hi2-find-indentations is fixed
+                            ;; don't freak out on parse-error
+                            (condition-case e
+                                (hi2-find-indentations-safe)
+                              (parse-error nil)))))
+             ;; indentations that are easy to show
+             (inds (remove-if (lambda (i) (>= i columns)) allinds))
+             ;; tricky indentations, that are after the current EOL
+             (overinds (member-if (lambda (i) (>= i columns)) allinds))
+             ;; +1: leave space for an extra overlay to show overinds
+             (overlays (hi2-init-overlays (+ 1 (length inds)))))
+        (while inds
+          (move-to-column (car inds))
+          (overlay-put (car overlays) 'face 'hi2-show-normal-face)
+          (overlay-put (car overlays) 'after-string nil)
+          (move-overlay (car overlays) (point) (+ 1 (point)))
+          (setq inds (cdr inds))
+          (setq overlays (cdr overlays)))
+        (when (and overinds
+                   hi2-show-indentations-after-eol)
+          (let ((o (car overlays))
+                (s (make-string (+ 1 (- (car (last overinds)) columns)) ? )))
+            ;; needed for the cursor to be in the good position, see:
+            ;;   http://lists.gnu.org/archive/html/bug-gnu-emacs/2013-03/msg00079.html
+            (put-text-property 0 1 'cursor t s)
+            ;; color the whole line ending overlay with hl-line face if needed
+            (when (or hl-line-mode global-hl-line-mode)
+              (put-text-property 0 (length s) 'face 'hl-line s))
+            ;; put in the underlines at the correct positions
+            (dolist (i overinds)
+              (put-text-property
+               (- i columns) (+ 1 (- i columns))
+               'face (if (or hl-line-mode global-hl-line-mode)
+                         'hi2-show-hl-line-face
+                       'hi2-show-normal-face)
+               s))
+            (overlay-put o 'face nil)
+            (overlay-put o 'after-string s)
+            (end-of-line)
+            (move-overlay o (point) (point))))
+        (setq hi2-dyn-show-overlays-cache
+              (cons (line-beginning-position) allinds))))))
 
 (defun hi2-enable-show-indentations ()
   "Enable showing of indentation points in the current buffer."
   (interactive)
   (setq hi2-dyn-show-indentations t)
-  (add-hook 'change-major-mode-hook #'hi2-unshow-overlays nil t)
-  (add-hook 'pre-command-hook #'hi2-unshow-overlays nil t)
-  (add-hook 'post-command-hook #'hi2-show-overlays nil t))
+  (add-hook 'change-major-mode-hook #'hi2-show-overlays-change-major-mode nil t)
+  (add-hook 'pre-command-hook #'hi2-show-overlays-pre-command nil t)
+  (add-hook 'post-command-hook #'hi2-show-overlays-post-command nil t))
 
 (defun hi2-disable-show-indentations ()
   "Disable showing of indentation points in the current buffer."
   (interactive)
   (setq hi2-dyn-show-indentations nil)
-  (remove-hook 'post-command-hook #'hl2-show-overlays t)
+  (remove-hook 'post-command-hook #'hl2-show-overlays-post-command t)
   (hi2-unshow-overlays)
-  (remove-hook 'change-major-mode-hook #'hi2-unshow-overlays t)
-  (remove-hook 'pre-command-hook #'hi2-unshow-overlays t))
+  (remove-hook 'change-major-mode-hook #'hi2-show-overlays-change-major-mode t)
+  (remove-hook 'pre-command-hook #'hi2-show-overlays-pre-command t))
 
 ;;---------------------------------------- parser starts here
 
