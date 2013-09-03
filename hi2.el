@@ -509,11 +509,19 @@ the current buffer."
              (overlays (hi2-init-overlays (+ 1 (length inds)))))
         (while inds
           (move-to-column (car inds))
-          (overlay-put (car overlays) 'face 'hi2-show-normal-face)
-          (overlay-put (car overlays) 'after-string nil)
-          (move-overlay (car overlays) (point) (+ 1 (point)))
-          (setq inds (cdr inds))
-          (setq overlays (cdr overlays)))
+          (and
+           ;; if we jump in the middle of a tab, we will be misaligned
+           (eq (current-column) (car inds))
+           ;; if we jump to the beginning, we will look at the tab
+           (not (eq (char-after) '?\t))
+           ;; and we only want to display indentations for spaces,
+           ;; because otherwise they'll look messy
+           (progn
+             (overlay-put (car overlays) 'face 'hi2-show-normal-face)
+             (overlay-put (car overlays) 'after-string nil)
+             (move-overlay (car overlays) (point) (+ 1 (point)))
+             (setq overlays (cdr overlays))))
+          (setq inds (cdr inds)))
         (when (and overinds
                    hi2-show-indentations-after-eol)
           (let ((o (car overlays))
@@ -551,7 +559,7 @@ the current buffer."
   "Disable showing of indentation points in the current buffer."
   (interactive)
   (setq hi2-dyn-show-indentations nil)
-  (remove-hook 'post-command-hook #'hl2-show-overlays-post-command t)
+  (remove-hook 'post-command-hook #'hi2-show-overlays-post-command t)
   (hi2-unshow-overlays)
   (remove-hook 'change-major-mode-hook #'hi2-show-overlays-change-major-mode t)
   (remove-hook 'pre-command-hook #'hi2-show-overlays-pre-command t))
