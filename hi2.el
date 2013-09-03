@@ -115,6 +115,13 @@ modes (e.g. fill-column-indicator)."
   :type 'boolean
   :group 'hi2)
 
+(defcustom hi2-show-indentations-delay 0.1
+  "Number of seconds to wait before showing the indentations.
+Since showing the indentations can be expensive on complicated
+files, you should set this value higher than your key repeat
+speed, so we'll never start computing indentations while you're
+moving your cursor around.")
+
 (defface hi2-show-normal-face
   '((t :underline t))
   "Default face for indentations overlay."
@@ -443,7 +450,7 @@ very quickly starts a new command.")
 (defun hi2-show-overlays-schedule-timer ()
   "Schedule a hi2-show-overlays run."
   (setq hi2-dyn-show-overlays-timer
-        (run-with-timer 0.1 nil #'hi2-show-overlays)))
+        (run-with-timer hi2-show-indentations-delay nil #'hi2-show-overlays)))
 
 (defvar hi2-dyn-show-overlays-cache '(-1 . nil)
   "(line-beginning-position . indentations) at the previous
