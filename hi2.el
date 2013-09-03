@@ -219,7 +219,7 @@ buffer, but the point is on a non-literate (e.g. comment) line."
          (save-excursion
            (progn
              (beginning-of-line)
-             (when (not (eq (char-after) ?>)) (error "literate bird command used on non-literate line"))
+             (when (/= (char-after) ?>) (error "literate bird command used on non-literate line"))
              t)))))
 
 ;;---------------------------------------- UI starts here
@@ -240,6 +240,10 @@ buffer, but the point is on a non-literate (e.g. comment) line."
   "Reindent current line to COL, also move the point there if MOVE"
   (let* ((cc (current-column))
          (ci (hi2-current-indentation)))
+    ;; only untabify if will do something, so we don't pollute undo
+    ;; have to untabify outside of save-excursion, to get good point moving
+    (when (/= ci col)
+      (untabify (line-beginning-position) (line-end-position)))
     (save-excursion
       (move-to-column ci)
       (if (<= ci col)
@@ -259,10 +263,11 @@ Handles bird style literate haskell too."
     (let ((end-marker (point-marker)))
       (goto-char start)
       (or (bolp) (forward-line 0))
+      (untabify (point) end-marker)
       (while (< (point) end-marker)
         (let ((ci (hi2-current-indentation)))
           (when (and t
-                     (eq (char-after) ?>))
+                     (= (char-after) ?>))
             (forward-char 1))
           (skip-syntax-forward "-")
           (unless (eolp)
@@ -284,7 +289,7 @@ Handles bird style literate haskell too."
        (or (< (current-column) 2)
            (save-excursion
              (beginning-of-line)
-             (not (eq (char-after) ?>))))))
+             (/= (char-after) ?>)))))
 
 (defun hi2-delete-horizontal-space-and-newline ()
   (delete-horizontal-space)
@@ -473,8 +478,8 @@ hi2-find-indentations-safe call inside hi2-show-overlays")
 the line is different than previously, so the cache is not
 usable.  If the cache is usable, just uses the cache to show the
 overlays."
-  (if (eq (car hi2-dyn-show-overlays-cache)
-          (line-beginning-position))
+  (if (= (car hi2-dyn-show-overlays-cache)
+         (line-beginning-position))
       ; cache is usable
       (progn
         (hi2-unshow-overlays)
@@ -511,9 +516,9 @@ the current buffer."
           (move-to-column (car inds))
           (and
            ;; if we jump in the middle of a tab, we will be misaligned
-           (eq (current-column) (car inds))
+           (= (current-column) (car inds))
            ;; if we jump to the beginning, we will look at the tab
-           (not (eq (char-after) '?\t))
+           (/= (char-after) '?\t)
            ;; and we only want to display indentations for spaces,
            ;; because otherwise they'll look messy
            (progn
@@ -613,7 +618,7 @@ the current buffer."
   (if (hi2-birdp)
       (catch 'return
         (while t
-          (when (not (eq (char-after) ?>))
+          (when (/= (char-after) ?>)
             (forward-line)
             (forward-char 2)
             (throw 'return nil))
