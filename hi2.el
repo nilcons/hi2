@@ -123,12 +123,12 @@ speed, so we'll never start computing indentations while you're
 moving your cursor around.")
 
 (defface hi2-show-normal-face
-  '((t :underline t))
+  '((t :underline (:style wave)))
   "Default face for indentations overlay."
   :group 'hl2)
 
 (defface hi2-show-hl-line-face
-  '((t :underline t :inherit hl-line))
+  '((t :underline (:style wave) :inherit hl-line))
   "Face used for indentations overlay after EOL if hl-line mode is enabled."
   :group 'hl2)
 
