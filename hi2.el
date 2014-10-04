@@ -5,7 +5,8 @@
 ;; This file is heavily based on haskell-indentation.el by Kristof.
 
 ;; Author: Gergely Risko <gergely@risko.hu>
-;; Version: 20130724.1612
+;; Version: 20130925.558
+;; X-Original-Version: 20130724.1612
 ;; Keywords: indentation haskell
 ;; URL: https://github.com/errge/hi2
 
@@ -731,10 +732,7 @@ the current buffer."
   '(("data" . hi2-data)
     ("type" . hi2-data)
     ("newtype" . hi2-data)
-    ("if"    . (lambda () (hi2-phrase
-                           '(hi2-expression
-                             "then" hi2-expression
-                             "else" hi2-expression))))
+    ("if"    . hi2-if-maybe-multiwayif)
     ("let"   . (lambda () (hi2-phrase
                            '(hi2-declaration-layout
                              "in" hi2-expression))))
@@ -785,6 +783,34 @@ the current buffer."
        #'hi2-case-layout nil)
     (hi2-phrase-rest
      '(hi2-expression "->" hi2-expression))))
+
+(defun hi2-if-maybe-multiwayif ()
+  (hi2-read-next-token)
+    (if (eq current-token 'value)
+	(hi2-if)
+	(progn 
+	  (when (eq current-token 'end-tokens)
+	    (hi2-read-next-token))
+	  (hi2-multiwayif))
+	))
+
+(defun hi2-multiwayif ()
+  (when (string= current-token "|")
+       (hi2-with-starter
+	(lambda () (hi2-separated #'hi2-multiwayif1 "|" nil))
+	nil)))
+
+(defun hi2-multiwayif1 ()
+  (hi2-phrase-rest '(hi2-expression "->" hi2-rexpression)))
+
+(defun hi2-rexpression ()
+  (hi2-statement-right 'hi2-expression))
+
+(defun hi2-if ()
+  (hi2-phrase-rest
+   '(hi2-expression
+     "then" hi2-expression
+     "else" hi2-expression)))
 
 (defun hi2-fundep ()
   (hi2-with-starter
