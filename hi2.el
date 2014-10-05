@@ -5,7 +5,7 @@
 ;; This file is heavily based on haskell-indentation.el by Kristof.
 
 ;; Author: Gergely Risko <gergely@risko.hu>
-;; Version: 20141004.0
+;; Version: 20141005.0
 ;; Keywords: indentation haskell
 ;; URL: https://github.com/errge/hi2
 
@@ -784,14 +784,44 @@ the current buffer."
      '(hi2-expression "->" hi2-expression))))
 
 (defun hi2-if-maybe-multiwayif ()
-  (if (string= current-token "|")
-      ;; Multi-way if
-      ;; TODO: reusing hi2-case OK?
-      ;; TODO: handle the explicit layout version too!
-      (hi2-with-starter (lambda () (hi2-separated #'hi2-case "|" nil)) nil)
-    ;; Regular if
-    (hi2-phrase-rest '(hi2-expression "then" hi2-expression "else" hi2-expression))
-    ))
+  (cond ((string= current-token "|")
+         ;; Multi-way if
+         (hi2-implicit-multiwayif-layout #'hi2-multiwayif-phrase))
+        ((string= current-token "{")
+         ;; Multi-way if with explicit layout
+         (hi2-layout #'hi2-multiwayif-phrase))
+        (t
+         ;; Regular if
+         (hi2-phrase-rest '(hi2-expression "then" hi2-expression "else" hi2-expression)))
+        ))
+
+(defun hi2-multiwayif-phrase ()
+  (cond ((string= current-token "|")
+         (hi2-phrase '(hi2-expression "->" hi2-expression)))
+        ))
+
+;; TODO(klao): this is an almost verbatim copy of
+;; hi2-implicit-layout-list, I was just too afraid to touch that one.
+(defun hi2-implicit-multiwayif-layout (parser)
+  (let* ((layout-indent (current-column))
+         (current-indent (current-column))
+         (left-indent (current-column)))
+    (catch 'return
+      (while t
+        (let ((left-indent left-indent))
+          (funcall parser))
+        (cond ((member current-token '(layout-next ";"))
+               (hi2-read-next-token))
+              ((eq current-token 'end-tokens)
+               (when (or (hi2-expression-token following-token)
+                         (member following-token '(";" "|")))
+                 (hi2-add-layout-indent))
+               (throw 'return nil))
+              (t (throw 'return nil))))))
+  ;; put hi2-read-next-token outside the current-indent definition
+  ;; so it will not return 'layout-end again
+  (when (eq current-token 'layout-end)
+    (hi2-read-next-token))) ;; leave layout at 'layout-end or illegal token
 
 (defun hi2-fundep ()
   (hi2-with-starter
